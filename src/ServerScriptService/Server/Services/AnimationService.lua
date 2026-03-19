@@ -2,66 +2,34 @@
 -- ServerScriptService/Server/Services/AnimationService.luau
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Net is the Blink-generated server module. It is required at the root level
+-- because it has no SSA dependencies — it is a static generated module.
+-- Blink creates and owns BLINK_RELIABLE_REMOTE; AnimationService no longer
+-- manages any RemoteEvent instances.
+local Net = require(script.Parent.Parent.Net)
 
 local RATE_LIMIT_INTERVAL = 0.3 -- minimum seconds between approved action state requests per player
 
 local AnimationService = {}
 
--- Initialized to empty here; reset inside init() which is the authoritative setup path. Values set here are never read before init() runs.
-local _actionStateWhitelist: {[string]: true}
--- Initialized to empty here; reset inside init() which is the authoritative setup path. Values set here are never read before init() runs.
-local _playerData: {[Player]: { lastRequestTime: number, conditions: {[string]: boolean} }}
-
-local _reqRemote: RemoteEvent?
-local _approvedRemote: RemoteEvent?
-local _replicatedRemote: RemoteEvent?
+-- Initialized to empty here; reset inside init() which is the authoritative setup path.
+local _actionStateWhitelist: { [string]: true }
+-- Initialized to empty here; reset inside init() which is the authoritative setup path.
+local _playerData: { [Player]: { lastRequestTime: number, conditions: { [string]: boolean } } }
 
 function AnimationService.init()
-	local remotes = ReplicatedStorage:FindFirstChild("SSA_Remotes") or Instance.new("Folder")
-	if remotes.Parent ~= ReplicatedStorage then
-		remotes.Name = "SSA_Remotes"
-		remotes.Parent = ReplicatedStorage
-	end
-
-	local function getOrCreateRemote(name: string): RemoteEvent
-		local event = remotes:FindFirstChild(name)
-		if not event or not event:IsA("RemoteEvent") then
-			event = Instance.new("RemoteEvent")
-			event.Name = name
-			event.Parent = remotes
-		end
-		return event :: RemoteEvent
-	end
-
-	_reqRemote = getOrCreateRemote("SSA_RequestActionState")
-	_approvedRemote = getOrCreateRemote("SSA_ActionStateApproved")
-	_replicatedRemote = getOrCreateRemote("SSA_ActionStateReplicated")
-
+	-- No remote setup needed — Blink owns the RemoteEvent infrastructure.
 	_actionStateWhitelist = {}
 	_playerData = {}
 end
 
 function AnimationService.start()
-	if _reqRemote == nil or _approvedRemote == nil or _replicatedRemote == nil then
-		warn("AnimationService: start() called before init() completed — RemoteEvents not ready. Aborting.")
-		return
-	end
-
-	local reqRemote = _reqRemote :: RemoteEvent
-	local appRemote = _approvedRemote :: RemoteEvent
-	local repRemote = _replicatedRemote :: RemoteEvent
-
-	reqRemote.OnServerEvent:Connect(function(player: Player, stateName: unknown)
-		if type(stateName) ~= "string" then
-			warn("AnimationService: Non-string state name from player " .. player.Name)
-			return
-		end
-		
-		local stateNameStr: string = stateName :: string
-
-		if _actionStateWhitelist[stateNameStr] ~= true then
-			-- silent rejection prevents the client from learning which state names are valid.
+	-- Blink has already validated that `stateName` is a non-empty string ≤ 64 chars
+	-- before this listener fires, so no manual type check is needed here.
+	Net.RequestActionState.On(function(player: Player, stateName: string)
+		if _actionStateWhitelist[stateName] ~= true then
+			-- Silent rejection: the client must not learn which names are valid.
 			return
 		end
 
@@ -73,9 +41,10 @@ function AnimationService.start()
 			return
 		end
 
-		for conditionName, isActive in pairs(_playerData[player].conditions) do
+		for _, isActive in pairs(_playerData[player].conditions) do
 			if isActive then
-				-- any active disabling condition (e.g. "stunned", "dead") blocks the transition. Conditions are set externally via SetPlayerCondition().
+				-- Any active disabling condition (e.g. "stunned", "dead") blocks the transition.
+				-- Conditions are set externally via SetPlayerCondition().
 				return
 			end
 		end
@@ -90,23 +59,21 @@ function AnimationService.start()
 
 		_playerData[player].lastRequestTime = os.clock()
 
-		local fireOk, fireErr = pcall(function()
-			appRemote:FireClient(player, stateNameStr)
+		-- Confirm approval to the originating client.
+		local approveOk, approveErr = pcall(function()
+			Net.ActionStateApproved.Fire(player, stateName)
 		end)
-		if not fireOk then
-			warn("AnimationService: FireClient error: " .. tostring(fireErr))
+		if not approveOk then
+			warn("AnimationService: ActionStateApproved.Fire error: " .. tostring(approveErr))
 		end
 
-		-- FireAllClientsExcept is not a real Roblox API; the manual loop is the correct approach.
-		for _, otherPlayer in ipairs(Players:GetPlayers()) do
-			if otherPlayer ~= player then
-				local repOk, repErr = pcall(function()
-					repRemote:FireClient(otherPlayer, player, stateNameStr)
-				end)
-				if not repOk then
-					warn("AnimationService: FireClient error: " .. tostring(repErr))
-				end
-			end
+		-- Broadcast to all other clients.
+		-- FireExcept is a first-class Blink API; no manual loop needed.
+		local replicateOk, replicateErr = pcall(function()
+			Net.ActionStateReplicated.FireExcept(player, { Player = player, StateName = stateName })
+		end)
+		if not replicateOk then
+			warn("AnimationService: ActionStateReplicated.FireExcept error: " .. tostring(replicateErr))
 		end
 	end)
 

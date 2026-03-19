@@ -7,17 +7,29 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage.Shared.Types)
 
+-- GoodSignal is required at root level: it is a standalone library with no SSA
+-- dependencies. It replaces _readyBindable (a BindableEvent) with a pure-Lua signal —
+-- no Instance allocation, no replication overhead, and no manual :Destroy() required.
+local GoodSignal = require(ReplicatedStorage.Packages.goodsignal)
+
 local IAnimationController = {}
 local _animator: Animator?
 local _currentTrack: AnimationTrack?
 local _currentStateName: string?
 local _trackCache: { [string]: AnimationTrack } = {}
 local _ready: boolean = false
-local _readyBindable: BindableEvent?
+-- _readySignal is always non-nil after init(). Each character lifetime gets a fresh
+-- signal; the previous one is fired once (to wake any stale WaitUntilReady callers)
+-- before being replaced, matching the prior BindableEvent :Destroy() semantics.
+local _readySignal = GoodSignal.new()
 local _respawnToken: number = 0
 
 function IAnimationController.init()
-	_readyBindable = Instance.new("BindableEvent")
+	-- Fire the current signal before replacing it so any callers blocked in
+	-- WaitUntilReady() from a previous session (e.g. test harness) are resumed
+	-- rather than left hanging forever.
+	_readySignal:Fire()
+	_readySignal = GoodSignal.new()
 	_trackCache = {}
 	_ready = false
 	_respawnToken = 0
@@ -26,11 +38,10 @@ end
 function IAnimationController.start()
 	local function signalReady()
 		_ready = true
-		if _readyBindable then
-			_readyBindable:Fire()
-			_readyBindable:Destroy()
-			_readyBindable = nil
-		end
+		-- Fire releases any coroutines currently blocked in WaitUntilReady:Wait().
+		-- No cleanup needed — GoodSignal is GC'd normally; unlike BindableEvent it
+		-- is not a Roblox Instance and carries no replication or leak risk.
+		_readySignal:Fire()
 	end
 
 	local function acquireAnimator(character: Model, token: number): boolean
@@ -60,10 +71,14 @@ function IAnimationController.start()
 		_currentTrack = nil
 		_currentStateName = nil
 		_trackCache = {}
-		if _readyBindable then
-			_readyBindable:Destroy()
-		end
-		_readyBindable = Instance.new("BindableEvent")
+
+		-- Fire the current signal before replacing it to resume any coroutine that is
+		-- blocked inside WaitUntilReady():Wait() for the *previous* character. The caller
+		-- (StateMachineController) uses a _setupToken guard to discard stale resumes, so
+		-- waking them here is safe. This matches the behaviour of the previous code, which
+		-- relied on BindableEvent:Destroy() to implicitly resume pending :Wait() calls.
+		_readySignal:Fire()
+		_readySignal = GoodSignal.new()
 
 		if not acquireAnimator(newCharacter, token) then
 			return
@@ -92,11 +107,12 @@ function IAnimationController.WaitUntilReady()
 	if _ready then
 		return
 	end
-	if _readyBindable then
-		_readyBindable.Event:Wait()
-	else
+	-- _readySignal is always set after init(). If it is somehow nil, the caller
+	-- invoked WaitUntilReady before SSA Phase 2 ran.
+	if not _readySignal then
 		error("AnimationController: WaitUntilReady called before init() — ensure SSA Phase 2 has run")
 	end
+	_readySignal:Wait()
 end
 
 function IAnimationController.Play(
@@ -115,12 +131,14 @@ function IAnimationController.Play(
 	local outgoingTrack = _currentTrack
 	if outgoingTrack and outgoingTrack.IsPlaying then
 		outgoingTrack:Stop(outgoingFadeTime or DEFAULT_FADE_TIME)
-		-- the outgoing state's fadeTime controls the exit blend. The incoming state's definition.fadeTime controls the enter blend. Both are in play; each state owns its own blend boundary.
+		-- The outgoing state's fadeTime controls the exit blend. The incoming state's
+		-- definition.fadeTime controls the enter blend. Both are in play; each state
+		-- owns its own blend boundary.
 	end
 
 	local track = _trackCache[stateName]
 	if track and track.Animation and track.Animation.AnimationId == definition.animationId then
-		-- reuse cached track
+		-- Reuse cached track.
 	else
 		if not _animator then
 			warn("AnimationController: _animator is nil despite _ready being true — possible acquire failure")
