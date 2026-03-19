@@ -24,20 +24,20 @@ local MIN_ACTION_COOLDOWN = 0.2 -- seconds; prevents server remote queue from be
 
 local StateMachineController = {}
 
-local _states: {[string]: Types.IStateDefinition} = {}
+local _states: { [string]: Types.IStateDefinition } = {}
 local _currentState: string?
 local _animController: Types.IAnimationController?
 local _humanoid: Humanoid?
 local _runThreshold: number = 0
 local _isSetup: boolean = false
 local _destroyed: boolean = false
-local _remotePlayerStates: {[Player]: string} = {}
+local _remotePlayerStates: { [Player]: string } = {}
 local _reqRemote: RemoteEvent?
 local _approvedRemote: RemoteEvent?
 local _replicatedRemote: RemoteEvent?
-local _hybridConnections: {RBXScriptConnection} = {}
+local _hybridConnections: { RBXScriptConnection } = {}
 -- Stores os.clock() timestamps. UX/bandwidth guard only — not a security boundary.
-local _lastRequestTime: {[string]: number} = {}
+local _lastRequestTime: { [string]: number } = {}
 local _setupToken: number = 0
 
 -- Shared transition path: runs the guard, computes outgoing fade time, plays the
@@ -52,7 +52,9 @@ local function _applyTransition(stateName: string, definition: Types.IStateDefin
 	end
 	local outgoingFadeTime = if _currentState and _states[_currentState] then _states[_currentState].fadeTime else nil
 	local success = _animController.Play(stateName, definition, outgoingFadeTime)
-	if not success then return false end
+	if not success then
+		return false
+	end
 	_currentState = stateName
 	return true
 end
@@ -82,60 +84,79 @@ end
 local function _setupHybridDetection(character: Model)
 	_humanoid = character:WaitForChild("Humanoid") :: Humanoid
 
-	table.insert(_hybridConnections, _humanoid.StateChanged:Connect(function(_, newState)
-		if not _isSetup then return end
-
-		if newState == Enum.HumanoidStateType.Jumping then
-			StateMachineController.TransitionTo("Jump")
-		elseif newState == Enum.HumanoidStateType.Freefall then
-			StateMachineController.TransitionTo("Fall")
-		elseif newState == Enum.HumanoidStateType.Swimming then
-			StateMachineController.TransitionTo("Swim")
-		elseif newState == Enum.HumanoidStateType.Climbing then
-			StateMachineController.TransitionTo("Climb")
-		elseif newState == Enum.HumanoidStateType.Dead then
-			-- Immediately sever all listeners so the settling ragdoll cannot fire
-			-- further transitions (e.g. Landed) against a nil _currentState.
-			_disconnectHybridConnections()
-			_humanoid = nil
-			if not _animController then
-				warn("StateMachineController: AnimationController is unavailable")
+	table.insert(
+		_hybridConnections,
+		_humanoid.StateChanged:Connect(function(_, newState)
+			if not _isSetup then
 				return
 			end
-			local outgoingFadeTime = if _currentState and _states[_currentState] then _states[_currentState].fadeTime else nil
-			_animController.Stop(outgoingFadeTime)
-			_currentState = nil
-		elseif newState == Enum.HumanoidStateType.Running then
-			-- HumanoidStateType.Running fires for all ground locomotion regardless of speed.
-			-- The Heartbeat loop handles the Idle/Walk/Run distinction instead.
-		end
-		-- Landed is intentionally omitted: the Heartbeat loop resolves the correct
-		-- ground state within one frame, preventing a spurious Idle flash on landing
-		-- while the character is already moving.
-	end))
 
-	table.insert(_hybridConnections, RunService.Heartbeat:Connect(function()
-		if not _isSetup then return end
+			if newState == Enum.HumanoidStateType.Jumping then
+				StateMachineController.TransitionTo("Jump")
+			elseif newState == Enum.HumanoidStateType.Freefall then
+				StateMachineController.TransitionTo("Fall")
+			elseif newState == Enum.HumanoidStateType.Swimming then
+				StateMachineController.TransitionTo("Swim")
+			elseif newState == Enum.HumanoidStateType.Climbing then
+				StateMachineController.TransitionTo("Climb")
+			elseif newState == Enum.HumanoidStateType.Dead then
+				-- Immediately sever all listeners so the settling ragdoll cannot fire
+				-- further transitions (e.g. Landed) against a nil _currentState.
+				_disconnectHybridConnections()
+				_humanoid = nil
+				if not _animController then
+					warn("StateMachineController: AnimationController is unavailable")
+					return
+				end
+				local outgoingFadeTime = if _currentState and _states[_currentState]
+					then _states[_currentState].fadeTime
+					else nil
+				_animController.Stop(outgoingFadeTime)
+				_currentState = nil
+			elseif newState == Enum.HumanoidStateType.Running then
+				-- HumanoidStateType.Running fires for all ground locomotion regardless of speed.
+				-- The Heartbeat loop handles the Idle/Walk/Run distinction instead.
+			end
+			-- Landed is intentionally omitted: the Heartbeat loop resolves the correct
+			-- ground state within one frame, preventing a spurious Idle flash on landing
+			-- while the character is already moving.
+		end)
+	)
 
-		-- A destroyed Instance is not nil in Luau; guard the Parent to detect removal.
-		if not _humanoid or not _humanoid.Parent then return end
-		if _currentState ~= "Idle" and _currentState ~= "Walk" and _currentState ~= "Run" and _currentState ~= nil then
-			return
-		end
+	table.insert(
+		_hybridConnections,
+		RunService.Heartbeat:Connect(function()
+			if not _isSetup then
+				return
+			end
 
-		local rootPart = _humanoid.RootPart
-		local magnitude = if rootPart
-			then Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Magnitude
-			else 0
+			-- A destroyed Instance is not nil in Luau; guard the Parent to detect removal.
+			if not _humanoid or not _humanoid.Parent then
+				return
+			end
+			if
+				_currentState ~= "Idle"
+				and _currentState ~= "Walk"
+				and _currentState ~= "Run"
+				and _currentState ~= nil
+			then
+				return
+			end
 
-		if magnitude < 0.1 then
-			StateMachineController.TransitionTo("Idle")
-		elseif magnitude < _runThreshold then
-			StateMachineController.TransitionTo("Walk")
-		else
-			StateMachineController.TransitionTo("Run")
-		end
-	end))
+			local rootPart = _humanoid.RootPart
+			local magnitude = if rootPart
+				then Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Magnitude
+				else 0
+
+			if magnitude < 0.1 then
+				StateMachineController.TransitionTo("Idle")
+			elseif magnitude < _runThreshold then
+				StateMachineController.TransitionTo("Walk")
+			else
+				StateMachineController.TransitionTo("Run")
+			end
+		end)
+	)
 end
 
 function StateMachineController.init()
@@ -149,8 +170,8 @@ end
 
 function StateMachineController.start()
 	local ssaRemotes = ReplicatedStorage:WaitForChild("SSA_Remotes")
-	_reqRemote        = ssaRemotes:WaitForChild("SSA_RequestActionState") :: RemoteEvent
-	_approvedRemote   = ssaRemotes:WaitForChild("SSA_ActionStateApproved") :: RemoteEvent
+	_reqRemote = ssaRemotes:WaitForChild("SSA_RequestActionState") :: RemoteEvent
+	_approvedRemote = ssaRemotes:WaitForChild("SSA_ActionStateApproved") :: RemoteEvent
 	_replicatedRemote = ssaRemotes:WaitForChild("SSA_ActionStateReplicated") :: RemoteEvent
 
 	_approvedRemote.OnClientEvent:Connect(function(stateName: string)
@@ -192,12 +213,14 @@ function StateMachineController.start()
 		_setupToken += 1
 		local token = _setupToken
 		_animController.WaitUntilReady()
-		if token ~= _setupToken then return end  -- superseded by a newer CharacterAdded
+		if token ~= _setupToken then
+			return
+		end -- superseded by a newer CharacterAdded
 		_setupHybridDetection(newCharacter)
 	end)
 end
 
-function StateMachineController.Setup(states: {[string]: Types.IStateDefinition}, runThreshold: number)
+function StateMachineController.Setup(states: { [string]: Types.IStateDefinition }, runThreshold: number)
 	for k, v in pairs(states) do
 		_states[k] = v
 	end

@@ -5,7 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SSA = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
--- CRITICAL RULE: Modules must NEVER call SSA.GetService / GetController / GetUtil at the root level of the module 
+-- CRITICAL RULE: Modules must NEVER call SSA.GetService / GetController / GetUtil at the root level of the module
 -- (i.e. outside of a function body). The module's root level executes during Phase 1 before the registry is locked or populated.
 -- All SSA getter calls must be deferred to inside `init`, `start`, or other functions.
 
@@ -20,10 +20,8 @@ function UIController.init()
 	local keys = TableUtils.Keys({ a = 1, b = 2 })
 end
 
-function UIController.start()
-end
+function UIController.start() end
 
-function UIController.ShowHUD()
-end
+function UIController.ShowHUD() end
 
 return UIController
