@@ -53,7 +53,8 @@ export type IStateMachineController = {
 	-- Returns nil if no server-approved action state has been broadcast for
 	-- this player. Locomotion states (Idle, Walk, Run, etc.) are
 	-- client-authoritative and are never tracked here.
-	GetRemotePlayerState: (player: Player) -> string?
+	GetRemotePlayerState: (player: Player) -> string?,
+	Destroy: () -> (),
 }
 
 export type IAnimationService = {

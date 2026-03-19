@@ -17,6 +17,9 @@ local RunService = game:GetService("RunService")
 local SSA = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
+-- UX / bandwidth guard only. Must be strictly less than AnimationService.RATE_LIMIT_INTERVAL
+-- (currently 0.3 s). This is NOT a security boundary — the server's RATE_LIMIT_INTERVAL is
+-- the authoritative gate. An exploiter can bypass this client-side check entirely.
 local MIN_ACTION_COOLDOWN = 0.2 -- seconds; prevents server remote queue from being flooded
 
 local StateMachineController = {}
@@ -27,12 +30,15 @@ local _animController: Types.IAnimationController?
 local _humanoid: Humanoid?
 local _runThreshold: number = 0
 local _isSetup: boolean = false
+local _destroyed: boolean = false
 local _remotePlayerStates: {[Player]: string} = {}
 local _reqRemote: RemoteEvent?
 local _approvedRemote: RemoteEvent?
 local _replicatedRemote: RemoteEvent?
 local _hybridConnections: {RBXScriptConnection} = {}
+-- Stores os.clock() timestamps. UX/bandwidth guard only — not a security boundary.
 local _lastRequestTime: {[string]: number} = {}
+local _setupToken: number = 0
 
 -- Shared transition path: runs the guard, computes outgoing fade time, plays the
 -- animation, and updates _currentState. Returns true if the transition was applied.
@@ -77,6 +83,8 @@ local function _setupHybridDetection(character: Model)
 	_humanoid = character:WaitForChild("Humanoid") :: Humanoid
 
 	table.insert(_hybridConnections, _humanoid.StateChanged:Connect(function(_, newState)
+		if not _isSetup then return end
+
 		if newState == Enum.HumanoidStateType.Jumping then
 			StateMachineController.TransitionTo("Jump")
 		elseif newState == Enum.HumanoidStateType.Freefall then
@@ -107,6 +115,8 @@ local function _setupHybridDetection(character: Model)
 	end))
 
 	table.insert(_hybridConnections, RunService.Heartbeat:Connect(function()
+		if not _isSetup then return end
+
 		-- A destroyed Instance is not nil in Luau; guard the Parent to detect removal.
 		if not _humanoid or not _humanoid.Parent then return end
 		if _currentState ~= "Idle" and _currentState ~= "Walk" and _currentState ~= "Run" and _currentState ~= nil then
@@ -131,8 +141,10 @@ end
 function StateMachineController.init()
 	_animController = SSA.GetController("AnimationController") :: Types.IAnimationController
 	_isSetup = false
+	_destroyed = false
 	_states = {}
 	_remotePlayerStates = {}
+	table.clear(_lastRequestTime)
 end
 
 function StateMachineController.start()
@@ -142,6 +154,10 @@ function StateMachineController.start()
 	_replicatedRemote = ssaRemotes:WaitForChild("SSA_ActionStateReplicated") :: RemoteEvent
 
 	_approvedRemote.OnClientEvent:Connect(function(stateName: string)
+		if type(stateName) ~= "string" or not _states[stateName] then
+			warn("StateMachineController: Received invalid or unknown approved state: " .. tostring(stateName))
+			return
+		end
 		_transitionApproved(stateName)
 	end)
 
@@ -173,7 +189,10 @@ function StateMachineController.start()
 		-- previous character cannot fire during the WaitUntilReady window, and
 		-- so a rapid second CharacterAdded cannot register connections twice.
 		_disconnectHybridConnections()
+		_setupToken += 1
+		local token = _setupToken
 		_animController.WaitUntilReady()
+		if token ~= _setupToken then return end  -- superseded by a newer CharacterAdded
 		_setupHybridDetection(newCharacter)
 	end)
 end
@@ -207,6 +226,10 @@ function StateMachineController.Setup(states: {[string]: Types.IStateDefinition}
 end
 
 function StateMachineController.TransitionTo(stateName: string): boolean
+	if _destroyed then
+		warn("StateMachineController: TransitionTo called after Destroy()")
+		return false
+	end
 	if not _isSetup then
 		warn("StateMachineController: TransitionTo called before Setup()")
 		return false
@@ -228,6 +251,10 @@ function StateMachineController.TransitionTo(stateName: string): boolean
 end
 
 function StateMachineController.RequestActionState(stateName: string)
+	if _destroyed then
+		warn("StateMachineController: RequestActionState called after Destroy()")
+		return
+	end
 	if not _isSetup then
 		warn("StateMachineController: RequestActionState called before Setup()")
 		return
@@ -250,13 +277,18 @@ function StateMachineController.RequestActionState(stateName: string)
 		return
 	end
 
-	local now = tick()
+	local now = os.clock()
 	if (now - (_lastRequestTime[stateName] or 0)) < MIN_ACTION_COOLDOWN then
 		return
 	end
 	_lastRequestTime[stateName] = now
 
-	_reqRemote:FireServer(stateName)
+	local ok, err = pcall(function()
+		_reqRemote:FireServer(stateName)
+	end)
+	if not ok then
+		warn("StateMachineController: FireServer failed — " .. tostring(err))
+	end
 end
 
 function StateMachineController.GetCurrentState(): string?
@@ -281,6 +313,7 @@ function StateMachineController.Destroy()
 	table.clear(_lastRequestTime)
 	_currentState = nil
 	_isSetup = false
+	_destroyed = true
 end
 
 return StateMachineController
