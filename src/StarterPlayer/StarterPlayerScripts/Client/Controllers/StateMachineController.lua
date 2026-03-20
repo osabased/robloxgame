@@ -118,8 +118,8 @@ local function _setupHybridDetection(character: Model)
 				-- The Heartbeat loop handles the Idle/Walk/Run distinction instead.
 			end
 			-- Landed is intentionally omitted: the Heartbeat loop resolves the correct
-			-- ground state within one frame, preventing a spurious Idle flash on landing
-			-- while the character is already moving.
+			-- ground state within one frame once HumanoidStateType transitions to Running,
+			-- preventing a spurious Idle flash on landing while the character is already moving.
 		end)
 	)
 
@@ -134,12 +134,29 @@ local function _setupHybridDetection(character: Model)
 			if not _humanoid or not _humanoid.Parent then
 				return
 			end
-			if
-				_currentState ~= "Idle"
-				and _currentState ~= "Walk"
-				and _currentState ~= "Run"
-				and _currentState ~= nil
-			then
+
+			-- Never let Heartbeat clobber a server-validated action state (e.g. Emote).
+			local currentDef = _currentState ~= nil and _states[_currentState] or nil
+			if currentDef and currentDef.isAction then
+				return
+			end
+
+			-- Only drive ground locomotion when the humanoid is actually grounded.
+			-- Checking the live HumanoidStateType (rather than _currentState) means:
+			--   • Heartbeat naturally stays silent while airborne (Jumping/Freefall),
+			--     swimming, or climbing — those states own their own animations via
+			--     StateChanged above and must not be overridden here.
+			--   • The moment the engine transitions back to Running/RunningNoPhysics on
+			--     landing (or after swimming/climbing ends), Heartbeat immediately fires
+			--     and resolves the correct Idle/Walk/Run state — no separate Landed
+			--     handler required and no one-frame Idle flash.
+			--
+			-- ROOT-CAUSE FIX: the previous guard keyed on _currentState being one of
+			-- {"Idle","Walk","Run",nil}. After a Jump or Fall, _currentState held "Jump"
+			-- or "Fall", so Heartbeat returned early every frame and the player was
+			-- permanently stuck with no ground-locomotion animation after landing.
+			local hState = _humanoid:GetState()
+			if hState ~= Enum.HumanoidStateType.Running and hState ~= Enum.HumanoidStateType.RunningNoPhysics then
 				return
 			end
 
