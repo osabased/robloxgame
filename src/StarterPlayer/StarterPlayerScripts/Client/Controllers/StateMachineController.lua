@@ -154,8 +154,16 @@ local function _setupHybridDetection(character: Model)
 			_animController.Stop(outgoingFadeTime)
 			_currentState = nil
 		elseif newState == Enum.HumanoidStateType.Running then
-			-- HumanoidStateType.Running fires for all ground locomotion regardless of speed.
-			-- The Heartbeat loop handles the Idle/Walk/Run distinction instead.
+			-- HumanoidStateType.Running fires whenever the player returns to ground
+			-- (including after Jump/Fall/Swim/Climb). Clear _currentState so the
+			-- Heartbeat guard (`_currentState ~= nil`) is satisfied and the loop can
+			-- immediately resolve the correct Idle/Walk/Run state on the next frame.
+			--
+			-- ROOT-CAUSE FIX: Without this, _currentState stays "Jump"/"Fall"/etc.
+			-- after landing. The Heartbeat guard bails out early for any state that
+			-- isn't Idle/Walk/Run/nil, so locomotion animations never resume and the
+			-- player slides around with no animation.
+			_currentState = nil
 		end
 		-- Landed is intentionally omitted: the Heartbeat loop resolves the correct ground
 		-- state within one frame, preventing a spurious Idle flash on landing while moving.
@@ -215,18 +223,14 @@ function StateMachineController.start()
 	-- Wire Blink listeners. wrapDisconnect() converts the plain function returned by
 	-- .On() into a ConnectionLike so Trove calls :Disconnect() directly (synchronous,
 	-- error-surfacing) rather than routing through task.spawn.
-	_globalTrove:Add(wrapDisconnect(
-		AnimationNet.ActionStateApproved.On(function(stateName: string)
-			_transitionApproved(stateName)
-		end)
-	))
+	_globalTrove:Add(wrapDisconnect(AnimationNet.ActionStateApproved.On(function(stateName: string)
+		_transitionApproved(stateName)
+	end)))
 
 	-- Player field is Instance(Player) (non-optional per schema) — no nil check required.
-	_globalTrove:Add(wrapDisconnect(
-		AnimationNet.ActionStateReplicated.On(function(data)
-			_remotePlayerStates[data.Player] = data.StateName
-		end)
-	))
+	_globalTrove:Add(wrapDisconnect(AnimationNet.ActionStateReplicated.On(function(data)
+		_remotePlayerStates[data.Player] = data.StateName
+	end)))
 
 	-- Remove stale entries when players leave to prevent unbounded memory growth
 	-- proportional to player churn over a session's lifetime.
