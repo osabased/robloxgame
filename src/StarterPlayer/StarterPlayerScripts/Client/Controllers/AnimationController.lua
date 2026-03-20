@@ -3,6 +3,7 @@ local DEFAULT_FADE_TIME: number = 0.1
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Signal = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("goodsignal"))
 local Types = require(ReplicatedStorage.Shared.Types)
 
 local IAnimationController = {}
@@ -11,11 +12,14 @@ local _currentTrack: AnimationTrack?
 local _currentStateName: string?
 local _trackCache: { [string]: AnimationTrack } = {}
 local _ready: boolean = false
-local _readyBindable: BindableEvent?
+local _readySignal: typeof(Signal.new())?
 local _respawnToken: number = 0
 
 function IAnimationController.init()
-	_readyBindable = Instance.new("BindableEvent")
+	if _readySignal then
+		_readySignal:DisconnectAll()
+	end
+	_readySignal = Signal.new()
 	_trackCache = {}
 	_ready = false
 	_respawnToken = 0
@@ -24,10 +28,10 @@ end
 function IAnimationController.start()
 	local function signalReady()
 		_ready = true
-		if _readyBindable then
-			_readyBindable:Fire()
-			_readyBindable:Destroy()
-			_readyBindable = nil
+		if _readySignal then
+			_readySignal:Fire()
+			_readySignal:DisconnectAll()
+			_readySignal = nil
 		end
 	end
 
@@ -58,10 +62,10 @@ function IAnimationController.start()
 		_currentTrack = nil
 		_currentStateName = nil
 		_trackCache = {}
-		if _readyBindable then
-			_readyBindable:Destroy()
+		if _readySignal then
+			_readySignal:DisconnectAll()
 		end
-		_readyBindable = Instance.new("BindableEvent")
+		_readySignal = Signal.new()
 
 		if not acquireAnimator(newCharacter, token) then
 			return
@@ -90,8 +94,8 @@ function IAnimationController.WaitUntilReady()
 	if _ready then
 		return
 	end
-	if _readyBindable then
-		_readyBindable.Event:Wait()
+	if _readySignal then
+		_readySignal:Wait()
 	else
 		error("AnimationController: WaitUntilReady called before init()")
 	end

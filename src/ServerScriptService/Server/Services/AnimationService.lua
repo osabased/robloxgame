@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AnimationNet =
 	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AnimationNet"):WaitForChild("Server"))
+local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("trove"))
 
 -- Must be strictly greater than MIN_ACTION_COOLDOWN in StateMachineController.
 local RATE_LIMIT_INTERVAL = 0.3
@@ -12,29 +13,28 @@ local AnimationService = {}
 
 local _actionStateWhitelist: { [string]: true }
 local _playerData: { [Player]: { lastRequestTime: number, conditions: { [string]: boolean } } }
-local _requestListenerDisconnect: (() -> ())?
-local _playerRemovingConn: RBXScriptConnection?
+local _trove: typeof(Trove.new())
+local _started: boolean = false
 
 function AnimationService.init()
 	_actionStateWhitelist = {}
 	_playerData = {}
-	if _requestListenerDisconnect then
-		_requestListenerDisconnect()
-		_requestListenerDisconnect = nil
+	_started = false
+	if _trove then
+		_trove:Destroy()
 	end
-	if _playerRemovingConn then
-		_playerRemovingConn:Disconnect()
-		_playerRemovingConn = nil
-	end
+	_trove = Trove.new()
 end
 
 function AnimationService.start()
-	if _requestListenerDisconnect then
+	if _started then
 		warn("AnimationService: start() called more than once — ignoring")
 		return
 	end
+	_started = true
 
-	_requestListenerDisconnect = AnimationNet.RequestActionState.On(function(player: Player, stateName: string)
+	-- Blink's .On() returns a () -> () disconnect function; Trove calls it on cleanup.
+	_trove:Add(AnimationNet.RequestActionState.On(function(player: Player, stateName: string)
 		if _actionStateWhitelist[stateName] ~= true then
 			return
 		end
@@ -69,9 +69,9 @@ function AnimationService.start()
 			Player = player,
 			StateName = stateName,
 		})
-	end)
+	end))
 
-	_playerRemovingConn = Players.PlayerRemoving:Connect(function(player: Player)
+	_trove:Connect(Players.PlayerRemoving, function(player: Player)
 		_playerData[player] = nil
 	end)
 end
