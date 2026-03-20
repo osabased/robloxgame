@@ -1,7 +1,5 @@
 --!strict
--- StarterPlayerScripts/Client/Controllers/AnimationController.luau
-
-local DEFAULT_FADE_TIME: number = 0.1 -- Default blend duration used when no fadeTime is provided by the caller or outgoing state.
+local DEFAULT_FADE_TIME: number = 0.1
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -95,7 +93,7 @@ function IAnimationController.WaitUntilReady()
 	if _readyBindable then
 		_readyBindable.Event:Wait()
 	else
-		error("AnimationController: WaitUntilReady called before init() — ensure SSA Phase 2 has run")
+		error("AnimationController: WaitUntilReady called before init()")
 	end
 end
 
@@ -115,7 +113,6 @@ function IAnimationController.Play(
 	local outgoingTrack = _currentTrack
 	if outgoingTrack and outgoingTrack.IsPlaying then
 		outgoingTrack:Stop(outgoingFadeTime or DEFAULT_FADE_TIME)
-		-- the outgoing state's fadeTime controls the exit blend. The incoming state's definition.fadeTime controls the enter blend. Both are in play; each state owns its own blend boundary.
 	end
 
 	local track = _trackCache[stateName]
@@ -123,7 +120,7 @@ function IAnimationController.Play(
 		-- reuse cached track
 	else
 		if not _animator then
-			warn("AnimationController: _animator is nil despite _ready being true — possible acquire failure")
+			warn("AnimationController: _animator is nil despite _ready being true")
 			_ready = false
 			return false
 		end
@@ -137,7 +134,7 @@ function IAnimationController.Play(
 		_trackCache[stateName] = track
 	end
 
-	-- Priority MUST be set before calling Play() or it has no effect on an already-loaded track.
+	-- Priority must be set before Play() or it has no effect on an already-loaded track.
 	track.Priority = definition.priority
 	track.Looped = definition.looped
 	track:Play(definition.fadeTime)

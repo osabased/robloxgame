@@ -1,22 +1,18 @@
 --!strict
--- ReplicatedStorage/Shared/SSA.luau
-
 local SSA = {}
 
 local _services: { [string]: any } = {}
 local _controllers: { [string]: any } = {}
 local _utils: { [string]: any } = {}
 local _failed: { [string]: { reason: string, module: any? } } = {}
-
 local _paths: { [string]: string } = {}
-
 local _locked = false
 
 function SSA._register(namespace: string, name: string, path: string, moduleTable: any)
 	if _locked then
 		error("SSA._register failed: Registry is locked. Cannot register " .. path)
 	end
-	
+
 	local store: { [string]: any }
 	if namespace == "Services" then
 		store = _services
@@ -30,11 +26,10 @@ function SSA._register(namespace: string, name: string, path: string, moduleTabl
 
 	if store[name] ~= nil then
 		local existingPath = _paths[namespace .. ":" .. name] or "Unknown Path"
-		error("SSA._register failed: Name collision for '" .. name .. "' in namespace '" .. namespace .. "'. Existing module and duplicate path: " .. existingPath .. " and " .. path)
+		error("SSA._register failed: Name collision for '" .. name .. "' in namespace '" .. namespace .. "'. Existing: " .. existingPath .. ", duplicate: " .. path)
 	end
 
 	_paths[namespace .. ":" .. name] = path
-	-- any is intentional here because the registry is type-erased by design and callers are responsible for casting via Types.luau
 	store[name] = moduleTable
 end
 
@@ -49,27 +44,22 @@ function SSA._markFailed(namespace: string, name: string, reason: string)
 	else
 		error("SSA._markFailed failed: Invalid namespace '" .. namespace .. "'")
 	end
-	
+
 	local mod = store[name]
-	_failed[namespace .. ":" .. name] = {
-		reason = reason,
-		module = mod
-	}
+	_failed[namespace .. ":" .. name] = { reason = reason, module = mod }
 end
 
 function SSA._lock()
 	_locked = true
-	
+
 	local function createProxy(originalStore: { [string]: any })
-		-- The proxy must be empty so that __newindex fires on ALL write attempts.
-		-- If data were stored directly in the proxy table, rawget would bypass __index 
-		-- and __newindex would never fire for existing keys.
+		-- Proxy must be empty so __newindex fires on all write attempts.
 		local proxy = {}
 		setmetatable(proxy, {
 			__index = originalStore,
 			__newindex = function()
 				error("SSA registry is locked. Cannot modify stores.")
-			end
+			end,
 		})
 		return proxy
 	end
@@ -82,12 +72,12 @@ end
 local function getModule(namespace: string, name: string, store: { [string]: any })
 	local failedKey = namespace .. ":" .. name
 	local failedEntry = _failed[failedKey]
-	
+
 	if failedEntry then
 		warn("SSA Get error: " .. failedEntry.reason)
 		return failedEntry.module
 	end
-	
+
 	local mod = store[name]
 	if mod then
 		return mod

@@ -1,21 +1,19 @@
 --!strict
--- StarterPlayerScripts/Client/Controllers/AnimationSetupController.luau
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SSA = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
-local RUN_THRESHOLD = 17 -- studs/sec. Tune using the [StateMachine] print output.
+local RUN_THRESHOLD = 17 -- studs/sec
 
-local IAnimationSetupController = {}
+local AnimationSetupController = {}
 
 local _stateMachine: Types.IStateMachineController
 
-function IAnimationSetupController.init()
+function AnimationSetupController.init()
 	_stateMachine = SSA.GetController("StateMachineController") :: Types.IStateMachineController
 end
 
-function IAnimationSetupController.start()
+function AnimationSetupController.start()
 	local states: { [string]: Types.IStateDefinition } = {
 		Idle = {
 			animationId = "rbxassetid://86677748592544",
@@ -98,4 +96,4 @@ function IAnimationSetupController.start()
 	_stateMachine.Setup(states, RUN_THRESHOLD)
 end
 
-return IAnimationSetupController
+return AnimationSetupController
