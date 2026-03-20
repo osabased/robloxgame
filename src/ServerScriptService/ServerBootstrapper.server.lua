@@ -16,8 +16,16 @@ type TrackingEntry = {
 local trackingArray: { TrackingEntry } = {}
 
 local scanTargets = {
-	{ folder = ReplicatedStorage.Shared:FindFirstChild("Utils"), path = "ReplicatedStorage.Shared.Utils", namespace = "Utils" },
-	{ folder = ServerScriptService.Server:FindFirstChild("Services"), path = "ServerScriptService.Server.Services", namespace = "Services" },
+	{
+		folder = ReplicatedStorage.Shared:FindFirstChild("Utils"),
+		path = "ReplicatedStorage.Shared.Utils",
+		namespace = "Utils",
+	},
+	{
+		folder = ServerScriptService.Server:FindFirstChild("Services"),
+		path = "ServerScriptService.Server.Services",
+		namespace = "Services",
+	},
 }
 
 -- Phase 1: Require & Register
@@ -28,7 +36,13 @@ for _, target in ipairs(scanTargets) do
 			if instance:IsA("ModuleScript") then
 				local ok, result = pcall(require, instance)
 				if not ok then
-					warn(string.format("SSA [Phase 1]: Failed to require %s — %s", instance:GetFullName(), tostring(result)))
+					warn(
+						string.format(
+							"SSA [Phase 1]: Failed to require %s — %s",
+							instance:GetFullName(),
+							tostring(result)
+						)
+					)
 					continue
 				end
 
@@ -37,7 +51,13 @@ for _, target in ipairs(scanTargets) do
 				end)
 
 				if not regOk then
-					warn(string.format("SSA [Phase 1]: Failed to register %s — %s", instance:GetFullName(), tostring(regErr)))
+					warn(
+						string.format(
+							"SSA [Phase 1]: Failed to register %s — %s",
+							instance:GetFullName(),
+							tostring(regErr)
+						)
+					)
 					continue
 				end
 
@@ -64,7 +84,14 @@ for _, entry in ipairs(trackingArray) do
 	if entry.init then
 		local initOk, initErr = pcall(entry.init)
 		if not initOk then
-			warn(string.format("SSA [Phase 2]: Init failed for %s:%s — %s", entry._namespace, entry._name, tostring(initErr)))
+			warn(
+				string.format(
+					"SSA [Phase 2]: Init failed for %s:%s — %s",
+					entry._namespace,
+					entry._name,
+					tostring(initErr)
+				)
+			)
 			SSA._markFailed(entry._namespace, entry._name, tostring(initErr))
 		end
 	end
@@ -76,7 +103,14 @@ for _, entry in ipairs(trackingArray) do
 		task.spawn(function()
 			local startOk, startErr = pcall(entry.start)
 			if not startOk then
-				warn(string.format("SSA [Phase 3]: Start error in %s:%s — %s", entry._namespace, entry._name, tostring(startErr)))
+				warn(
+					string.format(
+						"SSA [Phase 3]: Start error in %s:%s — %s",
+						entry._namespace,
+						entry._name,
+						tostring(startErr)
+					)
+				)
 			end
 		end)
 	end
