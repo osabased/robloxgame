@@ -3,10 +3,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local SSA        = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
-local Types      = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local SSA = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
+local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 local StateNames = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Utils"):WaitForChild("StateNames"))
-local Trove      = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("trove"))
+local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("trove"))
 local AnimationNet =
 	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AnimationNet"):WaitForChild("Client"))
 

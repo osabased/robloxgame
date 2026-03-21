@@ -3,19 +3,19 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
 
 export type ValidationResult = {
-	errors:   { string },
+	errors: { string },
 	warnings: { string },
 }
 
 local PLACEHOLDER_IDS: { [string]: true } = {
 	["rbxassetid://0"] = true,
-	[""]               = true,
+	[""] = true,
 }
 
 local StateValidator = {}
 
 function StateValidator.Validate(states: { [string]: Types.IStateDefinition }): ValidationResult
-	local errors:   { string } = {}
+	local errors: { string } = {}
 	local warnings: { string } = {}
 
 	for name, def in pairs(states) do

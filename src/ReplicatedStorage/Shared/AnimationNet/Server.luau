@@ -10,7 +10,9 @@
 
 _G._BLINK = _G._BLINK or {}
 if _G._BLINK["BLINK"] then
-	error("[Blink]: An instance of blink is already running with the remote scope \"BLINK\". Change the remote scope of either instance to avoid conflicts.")
+	error(
+		'[Blink]: An instance of blink is already running with the remote scope "BLINK". Change the remote scope of either instance to avoid conflicts.'
+	)
 end
 _G._BLINK["BLINK"] = true
 local Players = game:GetService("Players")
@@ -36,140 +38,144 @@ local RecieveInstanceCursor = 0
 local Null = newproxy()
 
 type Entry = {
-    value: any,
-    next: Entry?
+	value: any,
+	next: Entry?,
 }
 
 type Queue = {
-    head: Entry?,
-    tail: Entry?
+	head: Entry?,
+	tail: Entry?,
 }
 
 type BufferSave = {
-    Size: number, 
-    Cursor: number, 
-    Buffer: buffer, 
-    Instances: {Instance}
+	Size: number,
+	Cursor: number,
+	Buffer: buffer,
+	Instances: { Instance },
 }
 
 local function Read(Bytes: number)
-    local Offset = RecieveCursor
-    RecieveCursor += Bytes
-    return Offset
+	local Offset = RecieveCursor
+	RecieveCursor += Bytes
+	return Offset
 end
 
 local function Save(): BufferSave
-    return {
-        Size = SendSize,
-        Cursor = SendCursor,
-        Buffer = SendBuffer,
-        Instances = SendInstances
-    }
+	return {
+		Size = SendSize,
+		Cursor = SendCursor,
+		Buffer = SendBuffer,
+		Instances = SendInstances,
+	}
 end
 
 local function Load(Save: BufferSave?)
-    if Save then
-        SendSize = Save.Size
-        SendCursor = Save.Cursor
-        SendOffset = Save.Cursor
-        SendBuffer = Save.Buffer
-        SendInstances = Save.Instances
-        return
-    end
+	if Save then
+		SendSize = Save.Size
+		SendCursor = Save.Cursor
+		SendOffset = Save.Cursor
+		SendBuffer = Save.Buffer
+		SendInstances = Save.Instances
+		return
+	end
 
-    SendSize = 64
-    SendCursor = 0
-    SendOffset = 0
-    SendBuffer = buffer.create(64)
-    SendInstances = {}
+	SendSize = 64
+	SendCursor = 0
+	SendOffset = 0
+	SendBuffer = buffer.create(64)
+	SendInstances = {}
 end
 
 local function Invoke()
-    if Invocations == 255 then
-        Invocations = 0
-    end
+	if Invocations == 255 then
+		Invocations = 0
+	end
 
-    local Invocation = Invocations
-    Invocations += 1
-    return Invocation
+	local Invocation = Invocations
+	Invocations += 1
+	return Invocation
 end
 
 local function Allocate(Bytes: number)
-    local InUse = (SendCursor + Bytes)
-    if InUse > SendSize then
-        --> Avoid resizing the buffer for every write
-        while InUse > SendSize do
-            SendSize *= 1.5
-        end
+	local InUse = (SendCursor + Bytes)
+	if InUse > SendSize then
+		--> Avoid resizing the buffer for every write
+		while InUse > SendSize do
+			SendSize *= 1.5
+		end
 
-        local Buffer = buffer.create(SendSize)
-        buffer.copy(Buffer, 0, SendBuffer, 0, SendCursor)
-        SendBuffer = Buffer
-    end
+		local Buffer = buffer.create(SendSize)
+		buffer.copy(Buffer, 0, SendBuffer, 0, SendCursor)
+		SendBuffer = Buffer
+	end
 
-    SendOffset = SendCursor
-    SendCursor += Bytes
-    
-    return SendOffset
+	SendOffset = SendCursor
+	SendCursor += Bytes
+
+	return SendOffset
 end
 
 local function CreateQueue(): Queue
-    return {
-        head = nil,
-        tail = nil
-    }
+	return {
+		head = nil,
+		tail = nil,
+	}
 end
 
 local function Pop(queue: Queue): any
-    local head = queue.head
-    if head == nil then
-        return
-    end
+	local head = queue.head
+	if head == nil then
+		return
+	end
 
-    queue.head = head.next
-    return head.value
+	queue.head = head.next
+	return head.value
 end
 
 local function Push(queue: Queue, value: any)
-    local entry: Entry = {
-        value = value,
-        next = nil
-    }
+	local entry: Entry = {
+		value = value,
+		next = nil,
+	}
 
-    if queue.tail ~= nil then
-        queue.tail.next = entry
-    end
+	if queue.tail ~= nil then
+		queue.tail.next = entry
+	end
 
-    queue.tail = entry
+	queue.tail = entry
 
-    if queue.head == nil then
-        queue.head = entry
-    end
+	if queue.head == nil then
+		queue.head = entry
+	end
 end
 
 local Calls = table.create(256)
 
 local Events: any = {
-    Reliable = table.create(256),
-    Unreliable = table.create(256)
+	Reliable = table.create(256),
+	Unreliable = table.create(256),
 }
 
 local Queue: any = {
-    Reliable = table.create(256),
-    Unreliable = table.create(256)
+	Reliable = table.create(256),
+	Unreliable = table.create(256),
 }
 
 local SerdesEvent = "?"
 local SerdesThread: thread?
 Queue.Reliable[0] = table.create(256)
 export type StateName = string
-function SerdesFunctions.ReadEVENT_RequestActionState(): (string)
+function SerdesFunctions.ReadEVENT_RequestActionState(): string
 	-- Read BLOCK: 1 bytes
 	local BLOCK_START = Read(1)
 	local Length = buffer.readu8(RecieveBuffer, BLOCK_START + 0)
 	local Value = buffer.readstring(RecieveBuffer, Read(Length), Length)
-	if #Value < 1 then error(`Expected length of "Value" to be larger than 1, got {#Value} instead.`) end
-	if #Value > 32 then error(`Expected length of "Value" to be smaller than 32, got {#Value} instead.`) end
+	if #Value < 1 then
+		error(`Expected length of "Value" to be larger than 1, got {#Value} instead.`)
+	end
+	if #Value > 32 then
+		error(`Expected length of "Value" to be smaller than 32, got {#Value} instead.`)
+	end
 	return Value
 end
 
@@ -197,80 +203,83 @@ end
 if not RunService:IsRunning() then
 	local NOOP = function() end
 	local Returns = table.freeze({
-	RequestActionState = {
-		On = NOOP
-	},
-	ActionStateApproved = {
-		Fire = NOOP,
-		FireAll = NOOP,
-		FireList = NOOP,
-		FireExcept = NOOP
-	},
-	ActionStateReplicated = {
-		Fire = NOOP,
-		FireAll = NOOP,
-		FireList = NOOP,
-		FireExcept = NOOP
-	},
+		RequestActionState = {
+			On = NOOP,
+		},
+		ActionStateApproved = {
+			Fire = NOOP,
+			FireAll = NOOP,
+			FireList = NOOP,
+			FireExcept = NOOP,
+		},
+		ActionStateReplicated = {
+			Fire = NOOP,
+			FireAll = NOOP,
+			FireList = NOOP,
+			FireExcept = NOOP,
+		},
 	})
 	return Returns :: BLINK_EVENTS_SYMBOL
 end
 
 if not RunService:IsServer() then
-    error("Server network module can only be required from the server.")
+	error("Server network module can only be required from the server.")
 end
 
 local Reliable: RemoteEvent = ReplicatedStorage:FindFirstChild(BASE_EVENT_NAME .. "_RELIABLE_REMOTE") :: RemoteEvent
 if not Reliable then
-    local RemoteEvent = Instance.new("RemoteEvent")
-    RemoteEvent.Name = BASE_EVENT_NAME .. "_RELIABLE_REMOTE"
-    RemoteEvent.Parent = ReplicatedStorage
-    Reliable = RemoteEvent
+	local RemoteEvent = Instance.new("RemoteEvent")
+	RemoteEvent.Name = BASE_EVENT_NAME .. "_RELIABLE_REMOTE"
+	RemoteEvent.Parent = ReplicatedStorage
+	Reliable = RemoteEvent
 end
 
-local Unreliable: UnreliableRemoteEvent = ReplicatedStorage:FindFirstChild(BASE_EVENT_NAME .. "_UNRELIABLE_REMOTE") :: UnreliableRemoteEvent
+local Unreliable: UnreliableRemoteEvent =
+	ReplicatedStorage:FindFirstChild(BASE_EVENT_NAME .. "_UNRELIABLE_REMOTE") :: UnreliableRemoteEvent
 if not Unreliable then
-    local UnreliableRemoteEvent = Instance.new("UnreliableRemoteEvent")
-    UnreliableRemoteEvent.Name = BASE_EVENT_NAME .. "_UNRELIABLE_REMOTE"
-    UnreliableRemoteEvent.Parent = ReplicatedStorage
-    Unreliable = UnreliableRemoteEvent
+	local UnreliableRemoteEvent = Instance.new("UnreliableRemoteEvent")
+	UnreliableRemoteEvent.Name = BASE_EVENT_NAME .. "_UNRELIABLE_REMOTE"
+	UnreliableRemoteEvent.Parent = ReplicatedStorage
+	Unreliable = UnreliableRemoteEvent
 end
 
-local PlayersMap: {[Player]: BufferSave} = {}
+local PlayersMap: { [Player]: BufferSave } = {}
 
 Players.PlayerRemoving:Connect(function(Player)
-    PlayersMap[Player] = nil
+	PlayersMap[Player] = nil
 end)
 
 local function StepReplication()
-    for Player, Send in PlayersMap do
-        if Send.Cursor <= 0 then
-            continue
-        end
+	for Player, Send in PlayersMap do
+		if Send.Cursor <= 0 then
+			continue
+		end
 
-        local Buffer = buffer.create(Send.Cursor)
-        buffer.copy(Buffer, 0, Send.Buffer, 0, Send.Cursor)
-        Reliable:FireClient(Player, Buffer, Send.Instances)
+		local Buffer = buffer.create(Send.Cursor)
+		buffer.copy(Buffer, 0, Send.Buffer, 0, Send.Cursor)
+		Reliable:FireClient(Player, Buffer, Send.Instances)
 
-        Send.Size = 64
-        Send.Cursor = 0
-        Send.Buffer = buffer.create(64)
-        table.clear(Send.Instances)
-    end
+		Send.Size = 64
+		Send.Cursor = 0
+		Send.Buffer = buffer.create(64)
+		table.clear(Send.Instances)
+	end
 end
 RunService.Heartbeat:Connect(StepReplication)
-Reliable.OnServerEvent:Connect(function(Player: Player, Buffer: buffer, Instances: {Instance})
+Reliable.OnServerEvent:Connect(function(Player: Player, Buffer: buffer, Instances: { Instance })
 	RecieveCursor = 0
 	RecieveBuffer = Buffer
 	RecieveInstances = Instances
 	RecieveInstanceCursor = 0
 	local Size = buffer.len(RecieveBuffer)
 	if SerdesThread and coroutine.status(SerdesThread) == "suspended" then
-		warn(`[Blink]: Yielded in a Sync call. Event "{SerdesEvent}" uses a Sync call, consider using an Async call instead.`)
+		warn(
+			`[Blink]: Yielded in a Sync call. Event "{SerdesEvent}" uses a Sync call, consider using an Async call instead.`
+		)
 		coroutine.close(SerdesThread)
 	end
 	SerdesThread = coroutine.running()
-	while (RecieveCursor < Size) do
+	while RecieveCursor < Size do
 		-- Read BLOCK: 1 bytes
 		local BLOCK_START = Read(1)
 		local Index = buffer.readu8(RecieveBuffer, BLOCK_START + 0)
@@ -280,31 +289,34 @@ Reliable.OnServerEvent:Connect(function(Player: Player, Buffer: buffer, Instance
 				task.spawn(Events.Reliable[0], Player, Value)
 			else
 				if #Queue.Reliable[0] > 256 then
-					warn("[Blink]: Event queue of \"RequestActionState\" exceeded 256, did you forget to implement a listener?")
+					warn(
+						'[Blink]: Event queue of "RequestActionState" exceeded 256, did you forget to implement a listener?'
+					)
 				end
-				table.insert(Queue.Reliable[0], {Player, Value} :: {any})
+				table.insert(Queue.Reliable[0], { Player, Value } :: { any })
 			end
 		end
 	end
 end)
-Unreliable.OnServerEvent:Connect(function(Player: Player, Buffer: buffer, Instances: {Instance})
+Unreliable.OnServerEvent:Connect(function(Player: Player, Buffer: buffer, Instances: { Instance })
 	RecieveCursor = 0
 	RecieveBuffer = Buffer
 	RecieveInstances = Instances
 	RecieveInstanceCursor = 0
 	local Size = buffer.len(RecieveBuffer)
 	if SerdesThread and coroutine.status(SerdesThread) == "suspended" then
-		warn(`[Blink]: Yielded in a Sync call. Event "{SerdesEvent}" uses a Sync call, consider using an Async call instead.`)
+		warn(
+			`[Blink]: Yielded in a Sync call. Event "{SerdesEvent}" uses a Sync call, consider using an Async call instead.`
+		)
 		coroutine.close(SerdesThread)
 	end
 	SerdesThread = coroutine.running()
-	while (RecieveCursor < Size) do
+	while RecieveCursor < Size do
 		-- Read BLOCK: 1 bytes
 		local BLOCK_START = Read(1)
 		local Index = buffer.readu8(RecieveBuffer, BLOCK_START + 0)
 	end
 end)
-
 
 local Returns = table.freeze({
 	StepReplication = StepReplication,
@@ -316,12 +328,12 @@ local Returns = table.freeze({
 				task.spawn(Listener, table.unpack(Arguments))
 			end
 			Queue.Reliable[0] = {}
-			return function (): ()
+			return function(): ()
 				if Events.Reliable[0] == Listener then
 					Events.Reliable[0] = nil
 				end
 			end
-		end
+		end,
 	},
 	ActionStateApproved = {
 		Fire = function(Player: Player, Value: string): ()
@@ -341,7 +353,7 @@ local Returns = table.freeze({
 				PlayersMap[Player] = Save()
 			end
 		end,
-		FireList = function(List: {Player}, Value: string): ()
+		FireList = function(List: { Player }, Value: string): ()
 			Load()
 			SerdesFunctions.WriteEVENT_ActionStateApproved(Value)
 			local Buffer, Size, Instances = SendBuffer, SendCursor, SendInstances
@@ -387,7 +399,7 @@ local Returns = table.freeze({
 				PlayersMap[Player] = Save()
 			end
 		end,
-		FireList = function(List: {Player}, Value: { Player: Player, StateName: string }): ()
+		FireList = function(List: { Player }, Value: { Player: Player, StateName: string }): ()
 			Load()
 			SerdesFunctions.WriteEVENT_ActionStateReplicated(Value)
 			local Buffer, Size, Instances = SendBuffer, SendCursor, SendInstances

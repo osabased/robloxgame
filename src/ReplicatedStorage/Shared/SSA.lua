@@ -26,7 +26,16 @@ function SSA._register(namespace: string, name: string, path: string, moduleTabl
 
 	if store[name] ~= nil then
 		local existingPath = _paths[namespace .. ":" .. name] or "Unknown Path"
-		error("SSA._register failed: Name collision for '" .. name .. "' in namespace '" .. namespace .. "'. Existing: " .. existingPath .. ", duplicate: " .. path)
+		error(
+			"SSA._register failed: Name collision for '"
+				.. name
+				.. "' in namespace '"
+				.. namespace
+				.. "'. Existing: "
+				.. existingPath
+				.. ", duplicate: "
+				.. path
+		)
 	end
 
 	_paths[namespace .. ":" .. name] = path
