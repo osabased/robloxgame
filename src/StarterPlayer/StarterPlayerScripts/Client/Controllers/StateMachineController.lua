@@ -138,7 +138,6 @@ function StateMachineController.init()
 	_humanoid = nil
 	_runThreshold = 0
 	_setupToken = 0
-	_states = {}
 	_remotePlayerStates = {}
 	table.clear(_lastRequestTime)
 	if _characterTrove then

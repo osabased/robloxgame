@@ -72,12 +72,12 @@ local STATES: { [string]: Types.IStateDefinition } = table.freeze({
 
 local LocomotionStates = {}
 
-function LocomotionStates.init()
+function LocomotionStates.init() end
+
+function LocomotionStates.start()
 	local stateMachine = SSA.GetController("StateMachineController") :: Types.IStateMachineController
 	stateMachine.RegisterStates(STATES)
 	stateMachine.SetRunThreshold(RUN_THRESHOLD)
 end
-
-function LocomotionStates.start() end
 
 return LocomotionStates

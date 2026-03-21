@@ -33,11 +33,11 @@ local STATES: { [string]: Types.IStateDefinition } = table.freeze({
 
 local ActionStates = {}
 
-function ActionStates.init()
+function ActionStates.init() end
+
+function ActionStates.start()
 	local stateMachine = SSA.GetController("StateMachineController") :: Types.IStateMachineController
 	stateMachine.RegisterStates(STATES)
 end
-
-function ActionStates.start() end
 
 return ActionStates
