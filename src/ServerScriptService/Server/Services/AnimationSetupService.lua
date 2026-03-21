@@ -1,8 +1,10 @@
 --!strict
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SSA = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
+
+local SSA   = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
 local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+-- StateNames auto-discovered as a Util; retrieved here to avoid magic strings server-side too.
+local StateNames = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Utils"):WaitForChild("StateNames"))
 
 local AnimationSetupService = {}
 
@@ -13,8 +15,10 @@ function AnimationSetupService.init()
 end
 
 function AnimationSetupService.start()
-	-- Must be called before clients can have requests approved.
-	_animationService.RegisterActionState("Emote")
+	-- Register every action state that clients are permitted to request.
+	-- This list must stay in sync with the action states defined in ActionStates.lua.
+	_animationService.RegisterActionState(StateNames.Emote)
+	_animationService.RegisterActionState(StateNames.Stun)
 end
 
 return AnimationSetupService

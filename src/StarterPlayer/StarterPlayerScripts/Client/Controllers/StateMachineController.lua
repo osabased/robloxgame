@@ -3,9 +3,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local SSA = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
-local Types = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
-local Trove = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("trove"))
+local SSA        = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SSA"))
+local Types      = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Types"))
+local StateNames = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Utils"):WaitForChild("StateNames"))
+local Trove      = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("trove"))
 local AnimationNet =
 	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AnimationNet"):WaitForChild("Client"))
 
@@ -13,8 +14,6 @@ local AnimationNet =
 -- Must be strictly less than RATE_LIMIT_INTERVAL in AnimationService.
 local MIN_ACTION_COOLDOWN = 0.2
 
--- Wraps a Blink disconnect function so Trove routes cleanup through :Disconnect()
--- (synchronous, error-surfacing) rather than task.spawn.
 local function wrapDisconnect(fn: () -> ()): { Disconnect: () -> () }
 	return { Disconnect = fn }
 end
@@ -76,16 +75,14 @@ local function _setupHybridDetection(character: Model)
 		end
 
 		if newState == Enum.HumanoidStateType.Jumping then
-			StateMachineController.TransitionTo("Jump")
+			StateMachineController.TransitionTo(StateNames.Jump)
 		elseif newState == Enum.HumanoidStateType.Freefall then
-			StateMachineController.TransitionTo("Fall")
+			StateMachineController.TransitionTo(StateNames.Fall)
 		elseif newState == Enum.HumanoidStateType.Swimming then
-			StateMachineController.TransitionTo("Swim")
+			StateMachineController.TransitionTo(StateNames.Swim)
 		elseif newState == Enum.HumanoidStateType.Climbing then
-			StateMachineController.TransitionTo("Climb")
+			StateMachineController.TransitionTo(StateNames.Climb)
 		elseif newState == Enum.HumanoidStateType.Dead then
-			-- Nil _humanoid before cleaning the trove so the Heartbeat guard sees nil
-			-- immediately and cannot slip through in the same frame.
 			_humanoid = nil
 			_characterTrove:Clean()
 			if not _animController then
@@ -98,11 +95,8 @@ local function _setupHybridDetection(character: Model)
 			_animController.Stop(outgoingFadeTime)
 			_currentState = nil
 		elseif newState == Enum.HumanoidStateType.Running then
-			-- Clear _currentState so the Heartbeat loop can immediately resolve the
-			-- correct Idle/Walk/Run on the next frame after landing.
 			_currentState = nil
 		end
-		-- Landed intentionally omitted: Heartbeat resolves ground state within one frame.
 	end))
 
 	_characterTrove:Add(RunService.Heartbeat:Connect(function()
@@ -112,7 +106,12 @@ local function _setupHybridDetection(character: Model)
 		if not _humanoid or not _humanoid.Parent then
 			return
 		end
-		if _currentState ~= "Idle" and _currentState ~= "Walk" and _currentState ~= "Run" and _currentState ~= nil then
+
+		local groundState = _currentState == StateNames.Idle
+			or _currentState == StateNames.Walk
+			or _currentState == StateNames.Run
+			or _currentState == nil
+		if not groundState then
 			return
 		end
 
@@ -122,11 +121,11 @@ local function _setupHybridDetection(character: Model)
 			else 0
 
 		if magnitude < 0.1 then
-			StateMachineController.TransitionTo("Idle")
+			StateMachineController.TransitionTo(StateNames.Idle)
 		elseif magnitude < _runThreshold then
-			StateMachineController.TransitionTo("Walk")
+			StateMachineController.TransitionTo(StateNames.Walk)
 		else
-			StateMachineController.TransitionTo("Run")
+			StateMachineController.TransitionTo(StateNames.Run)
 		end
 	end))
 end
@@ -172,6 +171,10 @@ function StateMachineController.start()
 
 	_animController.WaitUntilReady()
 
+	-- All RegisterStates() calls from state module inits have completed by this point.
+	-- It is now safe to open transitions.
+	_isSetup = true
+
 	local localPlayer = Players.LocalPlayer
 
 	if localPlayer.Character then
@@ -199,18 +202,9 @@ function StateMachineController.start()
 
 		_setupHybridDetection(newCharacter)
 	end))
-end
 
--- Merges states into the registry and sets the run threshold.
--- Repeated calls accumulate states rather than replacing the full set.
-function StateMachineController.Setup(states: { [string]: Types.IStateDefinition }, runThreshold: number)
-	for k, v in pairs(states) do
-		_states[k] = v
-	end
-	_runThreshold = runThreshold
-	_isSetup = true
-
-	if _currentState == nil and _states["Idle"] ~= nil then
+	-- Auto-Idle: resolve initial ground state once the animator is ready.
+	if _states[StateNames.Idle] ~= nil and _currentState == nil then
 		task.spawn(function()
 			local ok, err = pcall(function()
 				if not _animController then
@@ -219,7 +213,7 @@ function StateMachineController.Setup(states: { [string]: Types.IStateDefinition
 				end
 				_animController.WaitUntilReady()
 				if _currentState == nil then
-					StateMachineController.TransitionTo("Idle")
+					StateMachineController.TransitionTo(StateNames.Idle)
 				end
 			end)
 			if not ok then
@@ -227,6 +221,37 @@ function StateMachineController.Setup(states: { [string]: Types.IStateDefinition
 			end
 		end)
 	end
+end
+
+-- Merges a batch of states into the registry. Safe to call from multiple module inits.
+-- Validates the incoming batch immediately; warns on duplicates.
+function StateMachineController.RegisterStates(states: { [string]: Types.IStateDefinition })
+	local StateValidator = SSA.GetUtil("StateValidator") :: any
+	if StateValidator then
+		local result = StateValidator.Validate(states)
+		for _, warning in ipairs(result.warnings) do
+			warn("StateMachineController.RegisterStates: " .. warning)
+		end
+		if not StateValidator.IsValid(result) then
+			for _, err in ipairs(result.errors) do
+				warn("StateMachineController.RegisterStates: ERROR — " .. err)
+			end
+			warn("StateMachineController.RegisterStates: batch rejected — fix errors above")
+			return
+		end
+	end
+
+	for name, def in pairs(states) do
+		if _states[name] ~= nil then
+			warn(`StateMachineController.RegisterStates: duplicate state "{name}" — overwriting previous definition`)
+		end
+		_states[name] = def
+	end
+end
+
+-- Called once by whichever module owns locomotion (LocomotionStates).
+function StateMachineController.SetRunThreshold(threshold: number)
+	_runThreshold = threshold
 end
 
 function StateMachineController.RegisterState(name: string, definition: Types.IStateDefinition)
@@ -239,7 +264,7 @@ function StateMachineController.TransitionTo(stateName: string): boolean
 		return false
 	end
 	if not _isSetup then
-		warn("StateMachineController: TransitionTo called before Setup()")
+		warn("StateMachineController: TransitionTo called before setup is complete")
 		return false
 	end
 
@@ -264,7 +289,7 @@ function StateMachineController.RequestActionState(stateName: string)
 		return
 	end
 	if not _isSetup then
-		warn("StateMachineController: RequestActionState called before Setup()")
+		warn("StateMachineController: RequestActionState called before setup is complete")
 		return
 	end
 
@@ -301,11 +326,8 @@ function StateMachineController.GetRemotePlayerState(player: Player): string?
 end
 
 function StateMachineController.Destroy()
-	-- Increment token first so any mid-yield CharacterAdded callbacks abort.
 	_setupToken += 1
 	_destroyed = true
-	-- Clean global first so no new character connections can be registered
-	-- after we clean _characterTrove.
 	_globalTrove:Clean()
 	_characterTrove:Clean()
 	_animController = nil

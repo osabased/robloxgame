@@ -21,10 +21,7 @@ export type IStateDefinition = {
 	fadeTime: number,
 	looped: boolean,
 	priority: Enum.AnimationPriority,
-	-- guard must never yield or error; called synchronously inside TransitionTo().
 	guard: ((currentState: string?) -> boolean)?,
-	-- true  = server-validated; use RequestActionState().
-	-- false = client-authoritative; use TransitionTo() directly.
 	isAction: boolean,
 }
 
@@ -32,8 +29,6 @@ export type IAnimationController = {
 	init: () -> (),
 	start: () -> (),
 	WaitUntilReady: () -> (),
-	-- outgoingFadeTime: governs the stop blend of the exiting state.
-	-- definition.fadeTime: governs the play blend of the entering state.
 	Play: (stateName: string, definition: IStateDefinition, outgoingFadeTime: number?) -> boolean,
 	Stop: (fadeTime: number?) -> (),
 	GetCurrentStateName: () -> string?,
@@ -42,7 +37,10 @@ export type IAnimationController = {
 export type IStateMachineController = {
 	init: () -> (),
 	start: () -> (),
-	Setup: (states: { [string]: IStateDefinition }, runThreshold: number) -> (),
+	-- Merges a batch of states into the registry. Safe to call multiple times during init.
+	RegisterStates: (states: { [string]: IStateDefinition }) -> (),
+	-- Called once by whichever module owns the locomotion threshold.
+	SetRunThreshold: (threshold: number) -> (),
 	RegisterState: (name: string, definition: IStateDefinition) -> (),
 	TransitionTo: (stateName: string) -> boolean,
 	GetCurrentState: () -> string?,
@@ -58,6 +56,4 @@ export type IAnimationService = {
 	SetPlayerCondition: (player: Player, condition: string, value: boolean) -> (),
 }
 
--- Returning {} instead of type definitions prevents circular dependencies;
--- types are compile-time constructs with no runtime representation.
 return {}
